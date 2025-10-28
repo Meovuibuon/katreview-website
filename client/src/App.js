@@ -2,6 +2,7 @@ import React from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Header from './components/Header';
 import Footer from './components/Footer';
+import BackToTop from './components/BackToTop';
 import HomePage from './pages/HomePage';
 import CategoryPage from './pages/CategoryPage';
 import ArticlePage from './pages/ArticlePage';
@@ -21,6 +22,7 @@ function App() {
         </Routes>
       </main>
       <Footer />
+      <BackToTop />
     </div>
   );
 }

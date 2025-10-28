@@ -6,6 +6,7 @@ const Header = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [showResults, setShowResults] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const location = useLocation();
 
   useEffect(() => {
@@ -32,6 +33,7 @@ const Header = () => {
   useEffect(() => {
     setSearchQuery('');
     setShowResults(false);
+    setIsMobileMenuOpen(false);
   }, [location]);
 
   const handleSearchChange = (e) => {
@@ -41,6 +43,10 @@ const Header = () => {
   const handleResultClick = () => {
     setShowResults(false);
     setSearchQuery('');
+  };
+
+  const toggleMobileMenu = () => {
+    setIsMobileMenuOpen(!isMobileMenuOpen);
   };
 
   const isActive = (path) => {
@@ -102,28 +108,58 @@ const Header = () => {
       </div>
 
       <nav className="navigation">
-        <ul className="nav-list">
-          <li className="nav-item">
-            <Link to="/" className={isActive('/') ? 'active' : ''}>
-              Trang Chủ
-            </Link>
-          </li>
-          <li className="nav-item">
-            <Link to="/category/review" className={isActive('/category/review') ? 'active' : ''}>
-              Review
-            </Link>
-          </li>
-          <li className="nav-item">
-            <Link to="/category/so-sanh" className={isActive('/category/so-sanh') ? 'active' : ''}>
-              So Sánh
-            </Link>
-          </li>
-          <li className="nav-item">
-            <Link to="/category/tin-tuc" className={isActive('/category/tin-tuc') ? 'active' : ''}>
-              Tin Tức
-            </Link>
-          </li>
-        </ul>
+        <div className="nav-desktop">
+          <ul className="nav-list">
+            <li className="nav-item">
+              <Link to="/" className={isActive('/') ? 'active' : ''}>
+                Trang Chủ
+              </Link>
+            </li>
+            <li className="nav-item">
+              <Link to="/category/review" className={isActive('/category/review') ? 'active' : ''}>
+                Review
+              </Link>
+            </li>
+            <li className="nav-item">
+              <Link to="/category/so-sanh" className={isActive('/category/so-sanh') ? 'active' : ''}>
+                So Sánh
+              </Link>
+            </li>
+            <li className="nav-item">
+              <Link to="/category/tin-tuc" className={isActive('/category/tin-tuc') ? 'active' : ''}>
+                Tin Tức
+              </Link>
+            </li>
+          </ul>
+        </div>
+        
+        <div className="nav-mobile">
+          <button className="mobile-menu-btn" onClick={toggleMobileMenu}>
+            <span className="hamburger">
+              <span></span>
+              <span></span>
+              <span></span>
+            </span>
+            Menu
+          </button>
+          
+          {isMobileMenuOpen && (
+            <div className="mobile-menu-dropdown">
+              <Link to="/" className={isActive('/') ? 'active' : ''} onClick={() => setIsMobileMenuOpen(false)}>
+                Trang Chủ
+              </Link>
+              <Link to="/category/review" className={isActive('/category/review') ? 'active' : ''} onClick={() => setIsMobileMenuOpen(false)}>
+                Review
+              </Link>
+              <Link to="/category/so-sanh" className={isActive('/category/so-sanh') ? 'active' : ''} onClick={() => setIsMobileMenuOpen(false)}>
+                So Sánh
+              </Link>
+              <Link to="/category/tin-tuc" className={isActive('/category/tin-tuc') ? 'active' : ''} onClick={() => setIsMobileMenuOpen(false)}>
+                Tin Tức
+              </Link>
+            </div>
+          )}
+        </div>
       </nav>
       </div>
     </header>
