@@ -58,7 +58,7 @@ const Header = () => {
       <div className="container">
         <div className="header-top">
           {/* Mobile menu button - moved to left side */}
-          <div className="nav-mobile">
+          <div className="btn_control_menu">
             <button className="mobile-menu-btn" onClick={toggleMobileMenu}>
               <span className="hamburger">
                 <span></span>
