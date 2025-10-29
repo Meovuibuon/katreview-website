@@ -65,7 +65,6 @@ const Header = () => {
                 <span></span>
                 <span></span>
               </span>
-              Menu
             </button>
             
             {isMobileMenuOpen && (
