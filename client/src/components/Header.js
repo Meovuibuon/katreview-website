@@ -57,24 +57,53 @@ const Header = () => {
     <header className="header">
       <div className="container">
         <div className="header-top">
-        <Link to="/" className="logo">
-          KatReview
-        </Link>
-        <div className="social-icons">
-          <a href="#" className="social-icon" aria-label="Facebook">
-            <i className="fab fa-facebook-f"></i>
-          </a>
-          <a href="#" className="social-icon" aria-label="YouTube">
-            <i className="fab fa-youtube"></i>
-          </a>
-          <a href="#" className="social-icon" aria-label="Instagram">
-            <i className="fab fa-instagram"></i>
-          </a>
-          <a href="#" className="social-icon" aria-label="Twitter">
-            <i className="fab fa-twitter"></i>
-          </a>
+          {/* Mobile menu button - moved to left side */}
+          <div className="nav-mobile">
+            <button className="mobile-menu-btn" onClick={toggleMobileMenu}>
+              <span className="hamburger">
+                <span></span>
+                <span></span>
+                <span></span>
+              </span>
+              Menu
+            </button>
+            
+            {isMobileMenuOpen && (
+              <div className="mobile-menu-dropdown">
+                <Link to="/" className={isActive('/') ? 'active' : ''} onClick={() => setIsMobileMenuOpen(false)}>
+                  Trang Chủ
+                </Link>
+                <Link to="/category/review" className={isActive('/category/review') ? 'active' : ''} onClick={() => setIsMobileMenuOpen(false)}>
+                  Review
+                </Link>
+                <Link to="/category/so-sanh" className={isActive('/category/so-sanh') ? 'active' : ''} onClick={() => setIsMobileMenuOpen(false)}>
+                  So Sánh
+                </Link>
+                <Link to="/category/tin-tuc" className={isActive('/category/tin-tuc') ? 'active' : ''} onClick={() => setIsMobileMenuOpen(false)}>
+                  Tin Tức
+                </Link>
+              </div>
+            )}
+          </div>
+
+          <Link to="/" className="logo">
+            KatReview
+          </Link>
+          <div className="social-icons">
+            <a href="#" className="social-icon" aria-label="Facebook">
+              <i className="fab fa-facebook-f"></i>
+            </a>
+            <a href="#" className="social-icon" aria-label="YouTube">
+              <i className="fab fa-youtube"></i>
+            </a>
+            <a href="#" className="social-icon" aria-label="Instagram">
+              <i className="fab fa-instagram"></i>
+            </a>
+            <a href="#" className="social-icon" aria-label="Twitter">
+              <i className="fab fa-twitter"></i>
+            </a>
+          </div>
         </div>
-      </div>
       
       <div className="search-container">
         <input
@@ -131,34 +160,6 @@ const Header = () => {
               </Link>
             </li>
           </ul>
-        </div>
-        
-        <div className="nav-mobile">
-          <button className="mobile-menu-btn" onClick={toggleMobileMenu}>
-            <span className="hamburger">
-              <span></span>
-              <span></span>
-              <span></span>
-            </span>
-            Menu
-          </button>
-          
-          {isMobileMenuOpen && (
-            <div className="mobile-menu-dropdown">
-              <Link to="/" className={isActive('/') ? 'active' : ''} onClick={() => setIsMobileMenuOpen(false)}>
-                Trang Chủ
-              </Link>
-              <Link to="/category/review" className={isActive('/category/review') ? 'active' : ''} onClick={() => setIsMobileMenuOpen(false)}>
-                Review
-              </Link>
-              <Link to="/category/so-sanh" className={isActive('/category/so-sanh') ? 'active' : ''} onClick={() => setIsMobileMenuOpen(false)}>
-                So Sánh
-              </Link>
-              <Link to="/category/tin-tuc" className={isActive('/category/tin-tuc') ? 'active' : ''} onClick={() => setIsMobileMenuOpen(false)}>
-                Tin Tức
-              </Link>
-            </div>
-          )}
         </div>
       </nav>
       </div>
