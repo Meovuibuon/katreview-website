@@ -20,6 +20,7 @@ const HomePage = () => {
           articlesAPI.getByCategory('tin-tuc', 6)
         ]);
 
+
         setCategoryArticles({
           review: reviewRes.data,
           'so-sanh': soSanhRes.data,
@@ -33,21 +34,34 @@ const HomePage = () => {
     fetchCategoryArticles();
   }, []);
 
-  const CategorySection = ({ title, articles, categorySlug }) => (
-    <section className="category-section">
-      <div className="category-header">
-        <h2 className="category-title">{title}</h2>
-        <Link to={`/category/${categorySlug}`} className="read-more-btn">
-          Đọc thêm các bài viết của chủ đề này
-        </Link>
-      </div>
-      <div className="articles-grid">
-        {articles.map((article) => (
-          <ArticleCard key={article._id} article={article} />
-        ))}
-      </div>
-    </section>
-  );
+  const CategorySection = ({ title, articles, categorySlug }) => {
+    // Separate featured and regular articles
+    const featuredArticle = articles.find(article => article.featured);
+    const regularArticles = articles.filter(article => !article.featured);
+    
+    // If no featured article, make the first one featured
+    const displayFeatured = featuredArticle || articles[0];
+    const displayRegular = featuredArticle ? regularArticles : articles.slice(1);
+    
+    return (
+      <section className="category-section">
+        <div className="category-header">
+          <h2 className="category-title">{title}</h2>
+          <Link to={`/category/${categorySlug}`} className="read-more-btn">
+            Đọc thêm các bài viết của chủ đề này
+          </Link>
+        </div>
+        <div className="articles-grid">
+          {displayFeatured && (
+            <ArticleCard key={displayFeatured._id} article={displayFeatured} isFeatured={true} />
+          )}
+          {displayRegular.slice(0, 5).map((article) => (
+            <ArticleCard key={article._id} article={article} isFeatured={false} />
+          ))}
+        </div>
+      </section>
+    );
+  };
 
   return (
     <div className="homepage">

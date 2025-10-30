@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 
-const ArticleCard = ({ article }) => {
+const ArticleCard = ({ article, isFeatured = false }) => {
   const formatDate = (dateString) => {
     const date = new Date(dateString);
     return date.toLocaleDateString('vi-VN', {
@@ -13,7 +13,7 @@ const ArticleCard = ({ article }) => {
 
   return (
     <Link to={`/article/${article.slug}`} className="article-card-link">
-      <div className="article-card">
+      <div className={`article-card ${isFeatured ? 'featured' : ''}`}>
         <div className="article-image">
           {article.images && article.images.length > 0 ? (
             <img
