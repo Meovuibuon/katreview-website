@@ -44,7 +44,7 @@ export const articlesAPI = {
     
     // Append text fields
     Object.keys(articleData).forEach(key => {
-      if (key !== 'images' && articleData[key] !== null && articleData[key] !== undefined) {
+      if (key !== 'images' && key !== 'imageOrder' && key !== 'coverIndex' && articleData[key] !== null && articleData[key] !== undefined) {
         formData.append(key, articleData[key]);
       }
     });
@@ -56,6 +56,14 @@ export const articlesAPI = {
           formData.append('images', image);
         }
       });
+    }
+
+    // Append ordering metadata
+    if (Array.isArray(articleData.imageOrder)) {
+      formData.append('imageOrder', JSON.stringify(articleData.imageOrder));
+    }
+    if (typeof articleData.coverIndex === 'number') {
+      formData.append('coverIndex', String(articleData.coverIndex));
     }
 
     return api.post('/articles', formData, {
@@ -71,18 +79,37 @@ export const articlesAPI = {
     
     // Append text fields
     Object.keys(articleData).forEach(key => {
-      if (key !== 'images' && articleData[key] !== null && articleData[key] !== undefined) {
+      if (key !== 'images' && key !== 'newImages' && key !== 'imageOrder' && key !== 'coverIndex' && key !== 'replaceImages' && key !== 'keptImageUrls' && articleData[key] !== null && articleData[key] !== undefined) {
         formData.append(key, articleData[key]);
       }
     });
 
-    // Append new images
-    if (articleData.newImages && articleData.newImages.length > 0) {
-      articleData.newImages.forEach(image => {
+    // Append replaceImages flag
+    if (articleData.replaceImages) {
+      formData.append('replaceImages', 'true');
+    }
+
+    // Append list of kept image URLs
+    if (Array.isArray(articleData.keptImageUrls)) {
+      formData.append('keptImageUrls', JSON.stringify(articleData.keptImageUrls));
+    }
+
+    // Append new images (support both 'images' and 'newImages' for compatibility)
+    const imagesToUpload = articleData.newImages || articleData.images || [];
+    if (imagesToUpload.length > 0) {
+      imagesToUpload.forEach(image => {
         if (image instanceof File) {
           formData.append('images', image);
         }
       });
+    }
+
+    // Append ordering metadata
+    if (Array.isArray(articleData.imageOrder)) {
+      formData.append('imageOrder', JSON.stringify(articleData.imageOrder));
+    }
+    if (typeof articleData.coverIndex === 'number') {
+      formData.append('coverIndex', String(articleData.coverIndex));
     }
 
     return api.put(`/articles/${id}`, formData, {

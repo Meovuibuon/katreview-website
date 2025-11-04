@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { articlesAPI, categoriesAPI } from '../services/api';
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
 
 const AdminPage = () => {
   const [activeTab, setActiveTab] = useState('articles');
@@ -17,7 +19,9 @@ const AdminPage = () => {
     authorEmail: '',
     categoryId: '',
     featured: false,
-    images: []
+    images: [],
+    coverIndex: 0,
+    imageOrder: []
   });
 
   // Category form state
@@ -29,6 +33,8 @@ const AdminPage = () => {
   // Editing states
   const [editingArticle, setEditingArticle] = useState(null);
   const [editingCategory, setEditingCategory] = useState(null);
+  const [hasModifiedImages, setHasModifiedImages] = useState(false);
+  const [keptImageUrls, setKeptImageUrls] = useState([]);
 
   useEffect(() => {
     fetchCategories();
@@ -59,11 +65,16 @@ const AdminPage = () => {
 
     try {
       if (editingArticle) {
-        await articlesAPI.update(editingArticle._id, articleForm);
+        await articlesAPI.update(editingArticle._id, {
+          ...articleForm,
+          replaceImages: hasModifiedImages,
+          keptImageUrls: keptImageUrls
+        });
       } else {
         await articlesAPI.create(articleForm);
       }
 
+      // Reset form and previews
       setArticleForm({
         title: '',
         metaDescription: '',
@@ -73,13 +84,19 @@ const AdminPage = () => {
         authorEmail: '',
         categoryId: '',
         featured: false,
-        images: []
+        images: [],
+        coverIndex: 0,
+        imageOrder: []
       });
+      setImagePreviews([]);
+      setHasModifiedImages(false);
+      setKeptImageUrls([]);
       setEditingArticle(null);
       fetchArticles();
+      alert('Bài viết đã được lưu thành công!');
     } catch (error) {
       console.error('Error saving article:', error);
-      alert('Có lỗi xảy ra khi lưu bài viết');
+      alert('Có lỗi xảy ra khi lưu bài viết: ' + (error.response?.data?.message || error.message));
     } finally {
       setLoading(false);
     }
@@ -107,13 +124,87 @@ const AdminPage = () => {
     }
   };
 
+  const [imagePreviews, setImagePreviews] = useState([]);
+
   const handleImageChange = (e) => {
     const files = Array.from(e.target.files);
+    const newPreviews = files.map((file) => ({ 
+      file, 
+      url: URL.createObjectURL(file), 
+      name: file.name,
+      existing: false 
+    }));
+    setImagePreviews(prev => [...prev, ...newPreviews]);
     setArticleForm(prev => ({
       ...prev,
-      images: [...prev.images, ...files]
+      images: [...prev.images, ...files],
+      imageOrder: [...Array(prev.images.length + files.length).keys()],
+      coverIndex: prev.coverIndex ?? 0
     }));
+    
+    // Mark that images have been modified when editing
+    if (editingArticle) {
+      setHasModifiedImages(true);
+    }
   };
+
+  const moveImage = (index, direction) => {
+    const target = index + direction;
+    if (target < 0 || target >= imagePreviews.length) return;
+    const newPreviews = [...imagePreviews];
+    [newPreviews[index], newPreviews[target]] = [newPreviews[target], newPreviews[index]];
+    setImagePreviews(newPreviews);
+
+    const newOrder = [...articleForm.imageOrder];
+    [newOrder[index], newOrder[target]] = [newOrder[target], newOrder[index]];
+    setArticleForm(prev => ({ ...prev, imageOrder: newOrder, coverIndex: prev.coverIndex === index ? target : (prev.coverIndex === target ? index : prev.coverIndex) }));
+  };
+
+  const removeImage = (index) => {
+    const removedImg = imagePreviews[index];
+    
+    // Remove from previews
+    const newPreviews = imagePreviews.filter((_, i) => i !== index);
+    setImagePreviews(newPreviews);
+    
+    // If it's an existing image, remove from kept list
+    if (editingArticle && removedImg.existing && removedImg.originalUrl) {
+      setKeptImageUrls(prev => prev.filter(url => url !== removedImg.originalUrl));
+      setHasModifiedImages(true);
+    }
+    
+    // Only remove from images array if it's a new image (not existing)
+    if (!removedImg.existing) {
+      const newImages = articleForm.images.filter((_, i) => i !== index);
+      setArticleForm(prev => ({
+        ...prev,
+        images: newImages,
+        imageOrder: [...Array(newImages.length).keys()],
+        coverIndex: Math.max(0, Math.min(prev.coverIndex, newImages.length - 1))
+      }));
+    }
+  };
+
+  const quillModules = useMemo(() => ({
+    toolbar: [
+      [{ header: [1, 2, 3, false] }],
+      ['bold', 'italic', 'underline', 'strike'],
+      [{ list: 'ordered' }, { list: 'bullet' }],
+      [{ indent: '-1' }, { indent: '+1' }],
+      [{ align: [] }],
+      ['link', 'blockquote', 'code-block'],
+      ['clean']
+    ]
+  }), []);
+
+  const quillFormats = useMemo(() => (
+    [
+      'header',
+      'bold', 'italic', 'underline', 'strike',
+      'list', 'bullet', 'indent', 'align',
+      'link', 'blockquote', 'code-block'
+    ]
+  ), []);
 
   const editArticle = (article) => {
     setArticleForm({
@@ -125,8 +216,29 @@ const AdminPage = () => {
       authorEmail: article.author.email,
       categoryId: article.category._id,
       featured: article.featured,
-      images: []
+      images: [],
+      coverIndex: 0,
+      imageOrder: []
     });
+    
+    // Load existing images for preview
+    if (article.images && article.images.length > 0) {
+      const existingPreviews = article.images.map((img, idx) => ({
+        url: `http://localhost:5000${img.url}`,
+        name: img.alt || `Image ${idx + 1}`,
+        existing: true,
+        originalUrl: img.url // Store original URL (without localhost prefix)
+      }));
+      setImagePreviews(existingPreviews);
+      
+      // Initially, all existing images are kept
+      setKeptImageUrls(article.images.map(img => img.url));
+    } else {
+      setImagePreviews([]);
+      setKeptImageUrls([]);
+    }
+    
+    setHasModifiedImages(false);
     setEditingArticle(article);
   };
 
@@ -223,13 +335,15 @@ const AdminPage = () => {
 
               <div className="form-group">
                 <label className="form-label">Nội dung</label>
-                <textarea
-                  className="form-textarea"
-                  value={articleForm.content}
-                  onChange={(e) => setArticleForm(prev => ({ ...prev, content: e.target.value }))}
-                  rows="10"
-                  required
-                />
+                <div className="form-textarea" style={{ padding: 0, border: 'none' }}>
+                  <ReactQuill
+                    theme="snow"
+                    value={articleForm.content}
+                    onChange={(value) => setArticleForm(prev => ({ ...prev, content: value }))}
+                    modules={quillModules}
+                    formats={quillFormats}
+                  />
+                </div>
               </div>
 
               <div className="form-group">
@@ -278,6 +392,74 @@ const AdminPage = () => {
                   accept="image/*"
                   onChange={handleImageChange}
                 />
+                {imagePreviews.length > 0 && (
+                  <div style={{ marginTop: '1rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.75rem' }}>
+                    {imagePreviews.map((img, idx) => (
+                      <div key={idx} style={{ 
+                        border: img.existing ? '2px solid #17a2b8' : '1px solid #e9ecef', 
+                        borderRadius: 6, 
+                        padding: 8,
+                        position: 'relative'
+                      }}>
+                        {img.existing && (
+                          <span style={{
+                            position: 'absolute',
+                            top: 4,
+                            right: 4,
+                            background: '#17a2b8',
+                            color: 'white',
+                            padding: '2px 6px',
+                            borderRadius: 3,
+                            fontSize: '0.75rem',
+                            fontWeight: 'bold'
+                          }}>
+                            Đã có
+                          </span>
+                        )}
+                        <img src={img.url} alt={img.name} style={{ width: '100%', height: 90, objectFit: 'cover', borderRadius: 4 }} />
+                        <div style={{ fontSize: '0.8rem', marginTop: 4, color: '#666', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {img.name}
+                        </div>
+                        {!img.existing && (
+                          <>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+                              <button type="button" onClick={() => moveImage(idx, -1)} disabled={idx === 0} style={{ fontSize: '0.8rem', padding: '4px 8px' }}>↑</button>
+                              <button type="button" onClick={() => moveImage(idx, 1)} disabled={idx === imagePreviews.length - 1} style={{ fontSize: '0.8rem', padding: '4px 8px' }}>↓</button>
+                            </div>
+                            <div style={{ marginTop: 6 }}>
+                              <label style={{ fontSize: '0.85rem' }}>
+                                <input
+                                  type="radio"
+                                  name="coverImage"
+                                  checked={articleForm.coverIndex === idx}
+                                  onChange={() => setArticleForm(prev => ({ ...prev, coverIndex: idx }))}
+                                /> Ảnh đại diện
+                              </label>
+                            </div>
+                          </>
+                        )}
+                        <div style={{ marginTop: 6 }}>
+                          <button 
+                            type="button" 
+                            onClick={() => removeImage(idx)} 
+                            style={{ 
+                              color: 'white', 
+                              background: '#dc3545',
+                              border: 'none',
+                              padding: '4px 8px',
+                              borderRadius: 3,
+                              fontSize: '0.8rem',
+                              cursor: 'pointer',
+                              width: '100%'
+                            }}
+                          >
+                            {img.existing ? 'Bỏ chọn' : 'Xoá'}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="form-group">
@@ -291,9 +473,38 @@ const AdminPage = () => {
                 </label>
               </div>
 
-              <button type="submit" className="submit-btn" disabled={loading}>
-                {loading ? 'Đang lưu...' : (editingArticle ? 'Cập nhật' : 'Tạo bài viết')}
-              </button>
+              <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                <button type="submit" className="submit-btn" disabled={loading}>
+                  {loading ? 'Đang lưu...' : (editingArticle ? 'Cập nhật' : 'Tạo bài viết')}
+                </button>
+                {editingArticle && (
+                  <button 
+                    type="button" 
+                    className="cancel-btn" 
+                    onClick={() => {
+                      setEditingArticle(null);
+                      setImagePreviews([]);
+                      setHasModifiedImages(false);
+                      setKeptImageUrls([]);
+                      setArticleForm({
+                        title: '',
+                        metaDescription: '',
+                        description: '',
+                        content: '',
+                        authorName: '',
+                        authorEmail: '',
+                        categoryId: '',
+                        featured: false,
+                        images: [],
+                        coverIndex: 0,
+                        imageOrder: []
+                      });
+                    }}
+                  >
+                    Hủy
+                  </button>
+                )}
+              </div>
             </form>
           </div>
 

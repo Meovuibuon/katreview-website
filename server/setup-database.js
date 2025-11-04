@@ -8,7 +8,7 @@ async function setupDatabase() {
     const connection = await mysql.createConnection({
       host: 'localhost',
       user: 'katreview_user',
-      password: 'katreview123',
+      password: 'password123',
       database: 'katreview_db'
     });
 

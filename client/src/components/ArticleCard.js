@@ -19,7 +19,6 @@ const ArticleCard = ({ article, isFeatured = false }) => {
             <img
               src={article.images[0].url}
               alt={article.images[0].alt || article.title}
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             />
           ) : (
             <span>400 x 200</span>

@@ -5,6 +5,7 @@ const multer = require('multer');
 const { testConnection, initializeDatabase } = require('./database/config');
 const Category = require('./database/models/Category');
 const Article = require('./database/models/Article');
+const { processMultipleImages } = require('./utils/imageProcessor');
 
 const app = express();
 
@@ -41,7 +42,7 @@ const initializeApp = async () => {
 initializeApp();
 
 // Helper function to format article response
-const formatArticleResponse = (article) => {
+const formatArticleResponse = (article, images = []) => {
   return {
     _id: article.id.toString(),
     title: article.title,
@@ -62,7 +63,7 @@ const formatArticleResponse = (article) => {
     updatedAt: article.updated_at,
     featured: Boolean(article.featured),
     views: article.views,
-    images: [] // Will be populated separately if needed
+    images
   };
 };
 
@@ -88,6 +89,15 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({ storage: storage });
+
+const safeParseJSON = (value, fallback) => {
+  try {
+    if (typeof value !== 'string') return fallback;
+    return JSON.parse(value);
+  } catch (_) {
+    return fallback;
+  }
+};
 
 // Routes
 // Categories API
@@ -136,7 +146,17 @@ app.get('/api/articles', async (req, res) => {
     const category = req.query.category;
 
     const result = await Article.getAll(page, limit, category);
-    const formattedArticles = result.articles.map(formatArticleResponse);
+    const formattedArticles = await Promise.all(
+      result.articles.map(async (a) => {
+        let images = [];
+        try {
+          images = await Article.getImages(a.id);
+        } catch (_) {
+          images = [];
+        }
+        return formatArticleResponse(a, images);
+      })
+    );
 
     res.json({
       articles: formattedArticles,
@@ -154,7 +174,17 @@ app.get('/api/articles/latest', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 5;
     const latestArticles = await Article.getLatest(limit);
-    const formattedArticles = latestArticles.map(formatArticleResponse);
+    const formattedArticles = await Promise.all(
+      latestArticles.map(async (a) => {
+        let images = [];
+        try {
+          images = await Article.getImages(a.id);
+        } catch (_) {
+          images = [];
+        }
+        return formatArticleResponse(a, images);
+      })
+    );
     res.json(formattedArticles);
   } catch (error) {
     console.error('Error fetching latest articles:', error);
@@ -168,7 +198,17 @@ app.get('/api/articles/category/:categorySlug', async (req, res) => {
     const limit = parseInt(req.query.limit) || 6;
 
     const categoryArticles = await Article.getByCategory(categorySlug, limit);
-    const formattedArticles = categoryArticles.map(formatArticleResponse);
+    const formattedArticles = await Promise.all(
+      categoryArticles.map(async (a) => {
+        let images = [];
+        try {
+          images = await Article.getImages(a.id);
+        } catch (_) {
+          images = [];
+        }
+        return formatArticleResponse(a, images);
+      })
+    );
 
     res.json(formattedArticles);
   } catch (error) {
@@ -187,7 +227,9 @@ app.get('/api/articles/:slug', async (req, res) => {
     // Increment view count
     await Article.incrementViews(article.id);
 
-    const formattedArticle = formatArticleResponse(article);
+    let images = [];
+    try { images = await Article.getImages(article.id); } catch (_) { images = []; }
+    const formattedArticle = formatArticleResponse(article, images);
     res.json(formattedArticle);
   } catch (error) {
     console.error('Error fetching article:', error);
@@ -244,11 +286,36 @@ app.post('/api/articles', upload.array('images', 10), async (req, res) => {
       featured: featured === 'true'
     });
 
-    const formattedArticle = formatArticleResponse(newArticle);
+    if (req.files && req.files.length > 0) {
+      // Process images to 3:2 ratio
+      console.log('Processing uploaded images...');
+      const processedImages = await processMultipleImages(req.files);
+      
+      const coverIndex = req.body.coverIndex !== undefined ? parseInt(req.body.coverIndex) : null;
+      const order = safeParseJSON(req.body.imageOrder, []);
+      const images = processedImages.map((file, idx) => {
+        let sort = idx;
+        if (Array.isArray(order) && order.length > 0) {
+          const pos = order.indexOf(idx);
+          sort = pos !== -1 ? pos : (order.length + idx);
+        }
+        if (!Number.isNaN(coverIndex) && coverIndex === idx) sort = -1;
+        return {
+          url: `/uploads/${file.filename}`,
+          alt: req.files[idx].originalname,
+          caption: '',
+          sort_order: sort
+        };
+      });
+      await Article.addImages(newArticle.id, images);
+    }
+
+    const images = await Article.getImages(newArticle.id);
+    const formattedArticle = formatArticleResponse({ ...newArticle, id: newArticle.id }, images);
     res.status(201).json(formattedArticle);
   } catch (error) {
     console.error('Error creating article:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: error.message || 'Internal server error', detail: String(error.stack || error) });
   }
 });
 
@@ -267,8 +334,16 @@ app.put('/api/articles/:id', upload.array('images', 10), async (req, res) => {
       featured
     } = req.body;
 
+    const slug = String(title || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9 -]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .trim('-');
+
     const updatedArticle = await Article.update(id, {
       title,
+      slug,
       metaDescription,
       description,
       content,
@@ -282,11 +357,63 @@ app.put('/api/articles/:id', upload.array('images', 10), async (req, res) => {
       return res.status(404).json({ message: 'Article not found' });
     }
 
-    const formattedArticle = formatArticleResponse(updatedArticle);
+    // Handle image updates
+    const replaceImages = req.body.replaceImages === 'true';
+    const keptImageUrls = safeParseJSON(req.body.keptImageUrls, []);
+    
+    console.log('=== DEBUG: Backend update images ===');
+    console.log('replaceImages:', replaceImages);
+    console.log('keptImageUrls:', keptImageUrls);
+    
+    if (replaceImages) {
+      // Get current images
+      const currentImages = await Article.getImages(id);
+      console.log('Current images in DB:', currentImages.map(i => i.url));
+      
+      // Delete images that are not in the kept list
+      for (const img of currentImages) {
+        if (!keptImageUrls.includes(img.url)) {
+          console.log('Deleting image:', img.url);
+          await Article.deleteImageByUrl(id, img.url);
+        } else {
+          console.log('Keeping image:', img.url);
+        }
+      }
+    }
+    
+    // Add new images if any
+    if (req.files && req.files.length > 0) {
+      // Process images to 3:2 ratio
+      console.log('Processing uploaded images for update...');
+      const processedImages = await processMultipleImages(req.files);
+      
+      const coverIndex = req.body.coverIndex !== undefined ? parseInt(req.body.coverIndex) : null;
+      const order = safeParseJSON(req.body.imageOrder, []);
+      const images = processedImages.map((file, idx) => {
+        let sort = idx;
+        if (Array.isArray(order) && order.length > 0) {
+          const pos = order.indexOf(idx);
+          sort = pos !== -1 ? pos : (order.length + idx);
+        }
+        if (!Number.isNaN(coverIndex) && coverIndex === idx) sort = -1;
+        return {
+          url: `/uploads/${file.filename}`,
+          alt: req.files[idx].originalname,
+          caption: '',
+          sort_order: sort
+        };
+      });
+      await Article.addImages(id, images);
+      console.log('New images added:', images.map(i => i.url));
+    }
+
+    const images = await Article.getImages(id);
+    console.log('Final images after update:', images.map(i => i.url));
+    const formattedArticle = formatArticleResponse({ ...updatedArticle, id }, images);
     res.json(formattedArticle);
   } catch (error) {
     console.error('Error updating article:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: error.message || 'Internal server error', detail: String(error.stack || error) });
   }
 });
 
@@ -353,7 +480,17 @@ app.get('/api/search', async (req, res) => {
     }
 
     const searchResults = await Article.search(q, limit);
-    const formattedResults = searchResults.map(formatArticleResponse);
+    const formattedResults = await Promise.all(
+      searchResults.map(async (a) => {
+        let images = [];
+        try {
+          images = await Article.getImages(a.id);
+        } catch (_) {
+          images = [];
+        }
+        return formatArticleResponse(a, images);
+      })
+    );
 
     res.json(formattedResults);
   } catch (error) {
