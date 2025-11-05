@@ -5,7 +5,12 @@ const multer = require('multer');
 const { testConnection, initializeDatabase } = require('./database/config');
 const Category = require('./database/models/Category');
 const Article = require('./database/models/Article');
+const User = require('./database/models/User');
 const { processMultipleImages } = require('./utils/imageProcessor');
+const { authMiddleware, adminMiddleware } = require('./utils/auth');
+
+// Import auth routes
+const authRoutes = require('./routes/auth');
 
 const app = express();
 
@@ -31,6 +36,10 @@ const initializeApp = async () => {
 
     // Initialize database schema
     await initializeDatabase();
+    
+    // Create users table
+    await User.createTable();
+    
     console.log('✅ MySQL database initialized successfully');
   } catch (error) {
     console.error('❌ Database initialization failed:', error);
@@ -100,6 +109,9 @@ const safeParseJSON = (value, fallback) => {
 };
 
 // Routes
+// Auth API
+app.use('/api/auth', authRoutes);
+
 // Categories API
 app.get('/api/categories', async (req, res) => {
   try {
@@ -125,7 +137,7 @@ app.get('/api/categories/:slug', async (req, res) => {
   }
 });
 
-app.post('/api/categories', async (req, res) => {
+app.post('/api/categories', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { name, description } = req.body;
     const slug = name.toLowerCase().replace(/[^a-z0-9 -]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').trim('-');
@@ -254,10 +266,11 @@ app.get('/api/articles/:slug/related', async (req, res) => {
   }
 });
 
-app.post('/api/articles', upload.array('images', 10), async (req, res) => {
+app.post('/api/articles', authMiddleware, adminMiddleware, upload.array('images', 10), async (req, res) => {
   try {
     const {
       title,
+      slug: customSlug,
       metaDescription,
       description,
       content,
@@ -267,8 +280,12 @@ app.post('/api/articles', upload.array('images', 10), async (req, res) => {
       featured
     } = req.body;
 
-    const slug = title
+    // Use custom slug if provided, otherwise generate from title
+    const slug = customSlug || title
       .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[đĐ]/g, 'd')
       .replace(/[^a-z0-9 -]/g, '')
       .replace(/\s+/g, '-')
       .replace(/-+/g, '-')
@@ -291,6 +308,15 @@ app.post('/api/articles', upload.array('images', 10), async (req, res) => {
       console.log('Processing uploaded images...');
       const processedImages = await processMultipleImages(req.files);
       
+      // Parse image metadata if provided
+      const imageMetadata = {};
+      Object.keys(req.body).forEach(key => {
+        if (key.startsWith('imageMetadata[')) {
+          const index = key.match(/\[(\d+)\]/)[1];
+          imageMetadata[index] = safeParseJSON(req.body[key], {});
+        }
+      });
+
       const coverIndex = req.body.coverIndex !== undefined ? parseInt(req.body.coverIndex) : null;
       const order = safeParseJSON(req.body.imageOrder, []);
       const images = processedImages.map((file, idx) => {
@@ -300,10 +326,14 @@ app.post('/api/articles', upload.array('images', 10), async (req, res) => {
           sort = pos !== -1 ? pos : (order.length + idx);
         }
         if (!Number.isNaN(coverIndex) && coverIndex === idx) sort = -1;
+        
+        // Get metadata for this image if available
+        const metadata = imageMetadata[idx] || {};
+        
         return {
           url: `/uploads/${file.filename}`,
-          alt: req.files[idx].originalname,
-          caption: '',
+          alt: metadata.alt || req.files[idx].originalname,
+          caption: metadata.caption || '',
           sort_order: sort
         };
       });
@@ -320,11 +350,12 @@ app.post('/api/articles', upload.array('images', 10), async (req, res) => {
 });
 
 // Update article (Admin)
-app.put('/api/articles/:id', upload.array('images', 10), async (req, res) => {
+app.put('/api/articles/:id', authMiddleware, adminMiddleware, upload.array('images', 10), async (req, res) => {
   try {
     const { id } = req.params;
     const {
       title,
+      slug: customSlug,
       metaDescription,
       description,
       content,
@@ -334,8 +365,12 @@ app.put('/api/articles/:id', upload.array('images', 10), async (req, res) => {
       featured
     } = req.body;
 
-    const slug = String(title || '')
+    // Use custom slug if provided, otherwise generate from title
+    const slug = customSlug || String(title || '')
       .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[đĐ]/g, 'd')
       .replace(/[^a-z0-9 -]/g, '')
       .replace(/\s+/g, '-')
       .replace(/-+/g, '-')
@@ -418,7 +453,7 @@ app.put('/api/articles/:id', upload.array('images', 10), async (req, res) => {
 });
 
 // Delete article (Admin)
-app.delete('/api/articles/:id', async (req, res) => {
+app.delete('/api/articles/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const deleted = await Article.delete(id);
@@ -435,7 +470,7 @@ app.delete('/api/articles/:id', async (req, res) => {
 });
 
 // Update category (Admin)
-app.put('/api/categories/:id', async (req, res) => {
+app.put('/api/categories/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description } = req.body;
@@ -455,7 +490,7 @@ app.put('/api/categories/:id', async (req, res) => {
 });
 
 // Delete category (Admin)
-app.delete('/api/categories/:id', async (req, res) => {
+app.delete('/api/categories/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const deleted = await Category.delete(id);

@@ -2,7 +2,7 @@
 
 ## 📋 File `database.env` đã được cập nhật!
 
-Password mới: `UQCK5XEh@`
+Password mới: `[PASSWORD_REMOVED_FOR_SECURITY]`
 
 ---
 
@@ -16,7 +16,7 @@ Password mới: `UQCK5XEh@`
 4. Copy và paste lệnh SQL sau:
 
 ```sql
-ALTER USER 'katreview_user'@'localhost' IDENTIFIED BY 'UQCK5XEh@';
+ALTER USER 'katreview_user'@'localhost' IDENTIFIED BY '[PASSWORD_REMOVED_FOR_SECURITY]';
 FLUSH PRIVILEGES;
 ```
 
@@ -32,7 +32,7 @@ FLUSH PRIVILEGES;
 3. Copy và paste lệnh SQL sau:
 
 ```sql
-ALTER USER 'katreview_user'@'localhost' IDENTIFIED BY 'UQCK5XEh@';
+ALTER USER 'katreview_user'@'localhost' IDENTIFIED BY '[PASSWORD_REMOVED_FOR_SECURITY]';
 FLUSH PRIVILEGES;
 ```
 
@@ -52,7 +52,7 @@ mysql -u root -p
 Nhập password root, sau đó chạy:
 
 ```sql
-ALTER USER 'katreview_user'@'localhost' IDENTIFIED BY 'UQCK5XEh@';
+ALTER USER 'katreview_user'@'localhost' IDENTIFIED BY '[PASSWORD_REMOVED_FOR_SECURITY]';
 FLUSH PRIVILEGES;
 exit;
 ```
@@ -64,7 +64,7 @@ exit;
 Server sẽ tự động restart và sử dụng password mới!
 
 Database password cũ: `password123` ❌
-Database password mới: `UQCK5XEh@` ✅
+Database password mới: `[PASSWORD_REMOVED_FOR_SECURITY]` ✅
 
 ---
 

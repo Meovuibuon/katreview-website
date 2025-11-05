@@ -1,27 +1,30 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { articlesAPI, categoriesAPI } from '../services/api';
-import ReactQuill from 'react-quill';
-import 'react-quill/dist/quill.snow.css';
+import { useAuth } from '../context/AuthContext';
 
 const AdminPage = () => {
+  const navigate = useNavigate();
+  const { user, logout } = useAuth();
+  
   const [activeTab, setActiveTab] = useState('articles');
   const [categories, setCategories] = useState([]);
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // Article form state
+  // Article form state with SEO-friendly structure
   const [articleForm, setArticleForm] = useState({
-    title: '',
-    metaDescription: '',
-    description: '',
-    content: '',
+    title: '', // H1 - Main title
+    slug: '', // URL slug
+    metaDescription: '', // Meta description for SEO
+    description: '', // Short description/excerpt
+    contentSections: [], // Array of content sections
     authorName: '',
     authorEmail: '',
     categoryId: '',
     featured: false,
-    images: [],
-    coverIndex: 0,
-    imageOrder: []
+    coverImage: null, // Main cover image
+    coverImagePreview: null
   });
 
   // Category form state
@@ -33,8 +36,19 @@ const AdminPage = () => {
   // Editing states
   const [editingArticle, setEditingArticle] = useState(null);
   const [editingCategory, setEditingCategory] = useState(null);
-  const [hasModifiedImages, setHasModifiedImages] = useState(false);
-  const [keptImageUrls, setKeptImageUrls] = useState([]);
+
+  // Generate slug from title
+  const generateSlug = (title) => {
+    return title
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // Remove diacritics
+      .replace(/[đĐ]/g, 'd')
+      .replace(/[^a-z0-9\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .trim();
+  };
 
   useEffect(() => {
     fetchCategories();
@@ -59,39 +73,64 @@ const AdminPage = () => {
     }
   };
 
+  // Convert structured content to HTML for backend
+  const convertToHTML = () => {
+    let html = '';
+    articleForm.contentSections.forEach(section => {
+      if (section.type === 'heading') {
+        html += `<h2>${section.content}</h2>`;
+      } else if (section.type === 'paragraph') {
+        html += `<p>${section.content}</p>`;
+      } else if (section.type === 'image' && section.imagePreview) {
+        html += `<figure style="margin: 2rem 0;">
+          <img src="${section.imagePreview}" alt="${section.alt || ''}" style="width: 100%; height: auto; border-radius: 8px;" />
+          ${section.caption ? `<figcaption style="text-align: center; font-style: italic; margin-top: 0.5rem; color: #6c757d;">${section.caption}</figcaption>` : ''}
+        </figure>`;
+      }
+    });
+    return html;
+  };
+
   const handleArticleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      if (editingArticle) {
-        await articlesAPI.update(editingArticle._id, {
-          ...articleForm,
-          replaceImages: hasModifiedImages,
-          keptImageUrls: keptImageUrls
-        });
-      } else {
-        await articlesAPI.create(articleForm);
+      const formData = new FormData();
+      formData.append('title', articleForm.title);
+      formData.append('slug', articleForm.slug);
+      formData.append('metaDescription', articleForm.metaDescription);
+      formData.append('description', articleForm.description);
+      formData.append('content', convertToHTML());
+      formData.append('authorName', articleForm.authorName);
+      formData.append('authorEmail', articleForm.authorEmail);
+      formData.append('categoryId', articleForm.categoryId);
+      formData.append('featured', articleForm.featured);
+
+      // Add cover image
+      if (articleForm.coverImage) {
+        formData.append('images', articleForm.coverImage);
       }
 
-      // Reset form and previews
-      setArticleForm({
-        title: '',
-        metaDescription: '',
-        description: '',
-        content: '',
-        authorName: '',
-        authorEmail: '',
-        categoryId: '',
-        featured: false,
-        images: [],
-        coverIndex: 0,
-        imageOrder: []
+      // Add section images
+      articleForm.contentSections.forEach((section, index) => {
+        if (section.type === 'image' && section.imageFile) {
+          formData.append('images', section.imageFile);
+          formData.append(`imageMetadata[${index}]`, JSON.stringify({
+            alt: section.alt,
+            caption: section.caption
+          }));
+        }
       });
-      setImagePreviews([]);
-      setHasModifiedImages(false);
-      setKeptImageUrls([]);
-      setEditingArticle(null);
+
+      if (editingArticle) {
+        await articlesAPI.update(editingArticle._id, formData);
+      } else {
+        await articlesAPI.create(formData);
+      }
+
+      // Reset form
+      resetArticleForm();
       fetchArticles();
       alert('Bài viết đã được lưu thành công!');
     } catch (error) {
@@ -100,6 +139,23 @@ const AdminPage = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const resetArticleForm = () => {
+    setArticleForm({
+      title: '',
+      slug: '',
+      metaDescription: '',
+      description: '',
+      contentSections: [],
+      authorName: '',
+      authorEmail: '',
+      categoryId: '',
+      featured: false,
+      coverImage: null,
+      coverImagePreview: null
+    });
+    setEditingArticle(null);
   };
 
   const handleCategorySubmit = async (e) => {
@@ -124,121 +180,131 @@ const AdminPage = () => {
     }
   };
 
-  const [imagePreviews, setImagePreviews] = useState([]);
-
-  const handleImageChange = (e) => {
-    const files = Array.from(e.target.files);
-    const newPreviews = files.map((file) => ({ 
-      file, 
-      url: URL.createObjectURL(file), 
-      name: file.name,
-      existing: false 
-    }));
-    setImagePreviews(prev => [...prev, ...newPreviews]);
+  // Content section management
+  const addSection = (type) => {
+    const newSection = {
+      id: Date.now(),
+      type,
+      content: type === 'paragraph' ? '' : type === 'heading' ? '' : '',
+      ...(type === 'image' && {
+        imageFile: null,
+        imagePreview: null,
+        alt: '',
+        caption: ''
+      })
+    };
     setArticleForm(prev => ({
       ...prev,
-      images: [...prev.images, ...files],
-      imageOrder: [...Array(prev.images.length + files.length).keys()],
-      coverIndex: prev.coverIndex ?? 0
+      contentSections: [...prev.contentSections, newSection]
     }));
-    
-    // Mark that images have been modified when editing
-    if (editingArticle) {
-      setHasModifiedImages(true);
+  };
+
+  const updateSection = (id, field, value) => {
+    setArticleForm(prev => ({
+      ...prev,
+      contentSections: prev.contentSections.map(section =>
+        section.id === id ? { ...section, [field]: value } : section
+      )
+    }));
+  };
+
+  const removeSection = (id) => {
+    setArticleForm(prev => ({
+      ...prev,
+      contentSections: prev.contentSections.filter(section => section.id !== id)
+    }));
+  };
+
+  const moveSectionUp = (index) => {
+    if (index === 0) return;
+    setArticleForm(prev => {
+      const newSections = [...prev.contentSections];
+      [newSections[index - 1], newSections[index]] = [newSections[index], newSections[index - 1]];
+      return { ...prev, contentSections: newSections };
+    });
+  };
+
+  const moveSectionDown = (index) => {
+    if (index === articleForm.contentSections.length - 1) return;
+    setArticleForm(prev => {
+      const newSections = [...prev.contentSections];
+      [newSections[index], newSections[index + 1]] = [newSections[index + 1], newSections[index]];
+      return { ...prev, contentSections: newSections };
+    });
+  };
+
+  const handleSectionImageChange = (sectionId, e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const preview = URL.createObjectURL(file);
+      updateSection(sectionId, 'imageFile', file);
+      updateSection(sectionId, 'imagePreview', preview);
     }
   };
 
-  const moveImage = (index, direction) => {
-    const target = index + direction;
-    if (target < 0 || target >= imagePreviews.length) return;
-    const newPreviews = [...imagePreviews];
-    [newPreviews[index], newPreviews[target]] = [newPreviews[target], newPreviews[index]];
-    setImagePreviews(newPreviews);
-
-    const newOrder = [...articleForm.imageOrder];
-    [newOrder[index], newOrder[target]] = [newOrder[target], newOrder[index]];
-    setArticleForm(prev => ({ ...prev, imageOrder: newOrder, coverIndex: prev.coverIndex === index ? target : (prev.coverIndex === target ? index : prev.coverIndex) }));
-  };
-
-  const removeImage = (index) => {
-    const removedImg = imagePreviews[index];
-    
-    // Remove from previews
-    const newPreviews = imagePreviews.filter((_, i) => i !== index);
-    setImagePreviews(newPreviews);
-    
-    // If it's an existing image, remove from kept list
-    if (editingArticle && removedImg.existing && removedImg.originalUrl) {
-      setKeptImageUrls(prev => prev.filter(url => url !== removedImg.originalUrl));
-      setHasModifiedImages(true);
-    }
-    
-    // Only remove from images array if it's a new image (not existing)
-    if (!removedImg.existing) {
-      const newImages = articleForm.images.filter((_, i) => i !== index);
+  const handleCoverImageChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const preview = URL.createObjectURL(file);
       setArticleForm(prev => ({
         ...prev,
-        images: newImages,
-        imageOrder: [...Array(newImages.length).keys()],
-        coverIndex: Math.max(0, Math.min(prev.coverIndex, newImages.length - 1))
+        coverImage: file,
+        coverImagePreview: preview
       }));
     }
   };
 
-  const quillModules = useMemo(() => ({
-    toolbar: [
-      [{ header: [1, 2, 3, false] }],
-      ['bold', 'italic', 'underline', 'strike'],
-      [{ list: 'ordered' }, { list: 'bullet' }],
-      [{ indent: '-1' }, { indent: '+1' }],
-      [{ align: [] }],
-      ['link', 'blockquote', 'code-block'],
-      ['clean']
-    ]
-  }), []);
-
-  const quillFormats = useMemo(() => (
-    [
-      'header',
-      'bold', 'italic', 'underline', 'strike',
-      'list', 'bullet', 'indent', 'align',
-      'link', 'blockquote', 'code-block'
-    ]
-  ), []);
 
   const editArticle = (article) => {
+    // Parse existing HTML content back to sections (simplified)
+    // This is a basic parser - you may want to enhance it
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(article.content, 'text/html');
+    const sections = [];
+    
+    doc.body.childNodes.forEach((node, index) => {
+      if (node.nodeName === 'H2') {
+        sections.push({
+          id: Date.now() + index,
+          type: 'heading',
+          content: node.textContent
+        });
+      } else if (node.nodeName === 'P') {
+        sections.push({
+          id: Date.now() + index,
+          type: 'paragraph',
+          content: node.textContent
+        });
+      } else if (node.nodeName === 'FIGURE') {
+        const img = node.querySelector('img');
+        const caption = node.querySelector('figcaption');
+        if (img) {
+          sections.push({
+            id: Date.now() + index,
+            type: 'image',
+            imageFile: null,
+            imagePreview: `http://localhost:5000${img.src}`,
+            alt: img.alt || '',
+            caption: caption ? caption.textContent : ''
+          });
+        }
+      }
+    });
+
     setArticleForm({
       title: article.title,
-      metaDescription: article.metaDescription,
+      slug: article.slug || generateSlug(article.title),
+      metaDescription: article.metaDescription || '',
       description: article.description,
-      content: article.content,
+      contentSections: sections,
       authorName: article.author.name,
       authorEmail: article.author.email,
       categoryId: article.category._id,
       featured: article.featured,
-      images: [],
-      coverIndex: 0,
-      imageOrder: []
+      coverImage: null,
+      coverImagePreview: article.images?.[0]?.url ? `http://localhost:5000${article.images[0].url}` : null
     });
     
-    // Load existing images for preview
-    if (article.images && article.images.length > 0) {
-      const existingPreviews = article.images.map((img, idx) => ({
-        url: `http://localhost:5000${img.url}`,
-        name: img.alt || `Image ${idx + 1}`,
-        existing: true,
-        originalUrl: img.url // Store original URL (without localhost prefix)
-      }));
-      setImagePreviews(existingPreviews);
-      
-      // Initially, all existing images are kept
-      setKeptImageUrls(article.images.map(img => img.url));
-    } else {
-      setImagePreviews([]);
-      setKeptImageUrls([]);
-    }
-    
-    setHasModifiedImages(false);
     setEditingArticle(article);
   };
 
@@ -278,7 +344,41 @@ const AdminPage = () => {
     <div className="admin-page">
       <div className="container">
         <div className="admin-header">
-        <h1 className="admin-title">Quản trị viên</h1>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <h1 className="admin-title">Quản trị viên</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <span style={{ color: '#6c757d' }}>
+                👤 <strong>{user?.username}</strong>
+              </span>
+              <button
+                onClick={() => {
+                  logout();
+                  navigate('/login');
+                }}
+                style={{
+                  padding: '0.75rem 1.5rem',
+                  background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontWeight: '500',
+                  transition: 'all 0.2s ease',
+                  boxShadow: '0 2px 4px rgba(245, 87, 108, 0.2)'
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                  e.currentTarget.style.boxShadow = '0 4px 8px rgba(245, 87, 108, 0.3)';
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = '0 2px 4px rgba(245, 87, 108, 0.2)';
+                }}
+              >
+                🚪 Đăng xuất
+              </button>
+            </div>
+          </div>
         <div className="admin-tabs">
           <button
             className={`admin-tab ${activeTab === 'articles' ? 'active' : ''}`}
@@ -300,208 +400,339 @@ const AdminPage = () => {
           <div className="admin-form">
             <h2>{editingArticle ? 'Chỉnh sửa bài viết' : 'Tạo bài viết mới'}</h2>
             <form onSubmit={handleArticleSubmit}>
-              <div className="form-group">
-                <label className="form-label">Tiêu đề</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  value={articleForm.title}
-                  onChange={(e) => setArticleForm(prev => ({ ...prev, title: e.target.value }))}
-                  required
-                />
-              </div>
+              {/* SEO Section */}
+              <div style={{ background: '#f8f9fa', padding: '1.5rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
+                <h3 style={{ marginBottom: '1rem', color: '#2c3e50' }}>🔍 Thông tin SEO</h3>
+                
+                <div className="form-group">
+                  <label className="form-label">Tiêu đề chính (H1) *</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={articleForm.title}
+                    onChange={(e) => {
+                      const newTitle = e.target.value;
+                      setArticleForm(prev => ({ 
+                        ...prev, 
+                        title: newTitle,
+                        slug: generateSlug(newTitle)
+                      }));
+                    }}
+                    placeholder="Tiêu đề chính của bài viết (quan trọng cho SEO)"
+                    required
+                  />
+                  <small style={{ color: '#6c757d', display: 'block', marginTop: '0.25rem' }}>
+                    Nên có 50-60 ký tự, chứa từ khóa chính
+                  </small>
+                </div>
 
-              <div className="form-group">
-                <label className="form-label">Mô tả meta</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  value={articleForm.metaDescription}
-                  onChange={(e) => setArticleForm(prev => ({ ...prev, metaDescription: e.target.value }))}
-                  required
-                />
-              </div>
+                <div className="form-group">
+                  <label className="form-label">Đường dẫn URL (Slug) *</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={articleForm.slug}
+                    onChange={(e) => setArticleForm(prev => ({ ...prev, slug: e.target.value }))}
+                    placeholder="duong-dan-url-cua-bai-viet"
+                    required
+                  />
+                  <small style={{ color: '#6c757d', display: 'block', marginTop: '0.25rem' }}>
+                    URL: /article/{articleForm.slug || 'duong-dan-url'}
+                  </small>
+                </div>
 
-              <div className="form-group">
-                <label className="form-label">Mô tả ngắn</label>
-                <textarea
-                  className="form-textarea"
-                  value={articleForm.description}
-                  onChange={(e) => setArticleForm(prev => ({ ...prev, description: e.target.value }))}
-                  rows="3"
-                  required
-                />
-              </div>
+                <div className="form-group">
+                  <label className="form-label">Meta Description *</label>
+                  <textarea
+                    className="form-input"
+                    value={articleForm.metaDescription}
+                    onChange={(e) => setArticleForm(prev => ({ ...prev, metaDescription: e.target.value }))}
+                    rows="2"
+                    placeholder="Mô tả ngắn gọn xuất hiện trong kết quả tìm kiếm"
+                    maxLength="160"
+                    required
+                  />
+                  <small style={{ color: '#6c757d', display: 'block', marginTop: '0.25rem' }}>
+                    {articleForm.metaDescription.length}/160 ký tự - Nên có 150-160 ký tự
+                  </small>
+                </div>
 
-              <div className="form-group">
-                <label className="form-label">Nội dung</label>
-                <div className="form-textarea" style={{ padding: 0, border: 'none' }}>
-                  <ReactQuill
-                    theme="snow"
-                    value={articleForm.content}
-                    onChange={(value) => setArticleForm(prev => ({ ...prev, content: value }))}
-                    modules={quillModules}
-                    formats={quillFormats}
+                <div className="form-group">
+                  <label className="form-label">Mô tả ngắn (Excerpt) *</label>
+                  <textarea
+                    className="form-input"
+                    value={articleForm.description}
+                    onChange={(e) => setArticleForm(prev => ({ ...prev, description: e.target.value }))}
+                    rows="3"
+                    placeholder="Tóm tắt nội dung bài viết (hiển thị trong danh sách bài viết)"
+                    required
                   />
                 </div>
               </div>
 
+              {/* Cover Image */}
               <div className="form-group">
-                <label className="form-label">Tên tác giả</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  value={articleForm.authorName}
-                  onChange={(e) => setArticleForm(prev => ({ ...prev, authorName: e.target.value }))}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Email tác giả</label>
-                <input
-                  type="email"
-                  className="form-input"
-                  value={articleForm.authorEmail}
-                  onChange={(e) => setArticleForm(prev => ({ ...prev, authorEmail: e.target.value }))}
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Danh mục</label>
-                <select
-                  className="form-select"
-                  value={articleForm.categoryId}
-                  onChange={(e) => setArticleForm(prev => ({ ...prev, categoryId: e.target.value }))}
-                  required
-                >
-                  <option value="">Chọn danh mục</option>
-                  {categories.map(category => (
-                    <option key={category._id} value={category._id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Hình ảnh</label>
+                <label className="form-label">Ảnh đại diện *</label>
                 <input
                   type="file"
-                  multiple
                   accept="image/*"
-                  onChange={handleImageChange}
+                  onChange={handleCoverImageChange}
+                  className="form-input"
                 />
-                {imagePreviews.length > 0 && (
-                  <div style={{ marginTop: '1rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.75rem' }}>
-                    {imagePreviews.map((img, idx) => (
-                      <div key={idx} style={{ 
-                        border: img.existing ? '2px solid #17a2b8' : '1px solid #e9ecef', 
-                        borderRadius: 6, 
-                        padding: 8,
-                        position: 'relative'
-                      }}>
-                        {img.existing && (
-                          <span style={{
-                            position: 'absolute',
-                            top: 4,
-                            right: 4,
-                            background: '#17a2b8',
-                            color: 'white',
-                            padding: '2px 6px',
-                            borderRadius: 3,
-                            fontSize: '0.75rem',
-                            fontWeight: 'bold'
-                          }}>
-                            Đã có
-                          </span>
-                        )}
-                        <img src={img.url} alt={img.name} style={{ width: '100%', height: 90, objectFit: 'cover', borderRadius: 4 }} />
-                        <div style={{ fontSize: '0.8rem', marginTop: 4, color: '#666', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {img.name}
-                        </div>
-                        {!img.existing && (
-                          <>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
-                              <button type="button" onClick={() => moveImage(idx, -1)} disabled={idx === 0} style={{ fontSize: '0.8rem', padding: '4px 8px' }}>↑</button>
-                              <button type="button" onClick={() => moveImage(idx, 1)} disabled={idx === imagePreviews.length - 1} style={{ fontSize: '0.8rem', padding: '4px 8px' }}>↓</button>
-                            </div>
-                            <div style={{ marginTop: 6 }}>
-                              <label style={{ fontSize: '0.85rem' }}>
-                                <input
-                                  type="radio"
-                                  name="coverImage"
-                                  checked={articleForm.coverIndex === idx}
-                                  onChange={() => setArticleForm(prev => ({ ...prev, coverIndex: idx }))}
-                                /> Ảnh đại diện
-                              </label>
-                            </div>
-                          </>
-                        )}
-                        <div style={{ marginTop: 6 }}>
-                          <button 
-                            type="button" 
-                            onClick={() => removeImage(idx)} 
-                            style={{ 
-                              color: 'white', 
-                              background: '#dc3545',
-                              border: 'none',
-                              padding: '4px 8px',
-                              borderRadius: 3,
-                              fontSize: '0.8rem',
-                              cursor: 'pointer',
-                              width: '100%'
-                            }}
-                          >
-                            {img.existing ? 'Bỏ chọn' : 'Xoá'}
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                {articleForm.coverImagePreview && (
+                  <div className="image-preview-container">
+                    <div className="image-preview-header">
+                      <span className="image-preview-label">Ảnh hiện tại:</span>
+                      <button
+                        type="button"
+                        className="image-delete-btn"
+                        onClick={() => {
+                          setArticleForm(prev => ({
+                            ...prev,
+                            coverImage: null,
+                            coverImagePreview: null
+                          }));
+                        }}
+                      >
+                        🗑️ Xóa ảnh
+                      </button>
+                    </div>
+                    <img 
+                      src={articleForm.coverImagePreview} 
+                      alt="Cover preview" 
+                      className="image-preview-img"
+                    />
+                    <p className="image-help-text">
+                      💡 Để thay đổi ảnh, chọn file mới ở trên
+                    </p>
                   </div>
                 )}
               </div>
 
-              <div className="form-group">
-                <label>
+              {/* Content Sections */}
+              <div style={{ marginTop: '2rem', marginBottom: '1.5rem' }}>
+                <h3 style={{ marginBottom: '1rem', color: '#2c3e50' }}>📝 Nội dung bài viết</h3>
+                
+                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                  <button 
+                    type="button" 
+                    onClick={() => addSection('heading')}
+                    style={{ padding: '0.5rem 1rem', background: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                  >
+                    + Tiêu đề phụ (H2)
+                  </button>
+                  <button 
+                    type="button" 
+                    onClick={() => addSection('paragraph')}
+                    style={{ padding: '0.5rem 1rem', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                  >
+                    + Đoạn văn
+                  </button>
+                  <button 
+                    type="button" 
+                    onClick={() => addSection('image')}
+                    style={{ padding: '0.5rem 1rem', background: '#17a2b8', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                  >
+                    + Hình ảnh
+                  </button>
+                </div>
+
+                {/* Render content sections */}
+                {articleForm.contentSections.map((section, index) => (
+                  <div 
+                    key={section.id} 
+                    style={{ 
+                      background: 'white', 
+                      border: '2px solid #e9ecef', 
+                      borderRadius: '8px', 
+                      padding: '1rem', 
+                      marginBottom: '1rem' 
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                      <strong style={{ color: '#2c3e50' }}>
+                        {section.type === 'heading' && '📌 Tiêu đề phụ (H2)'}
+                        {section.type === 'paragraph' && '📄 Đoạn văn'}
+                        {section.type === 'image' && '🖼️ Hình ảnh'}
+                      </strong>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button 
+                          type="button" 
+                          onClick={() => moveSectionUp(index)}
+                          disabled={index === 0}
+                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
+                        >
+                          ↑
+                        </button>
+                        <button 
+                          type="button" 
+                          onClick={() => moveSectionDown(index)}
+                          disabled={index === articleForm.contentSections.length - 1}
+                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
+                        >
+                          ↓
+                        </button>
+                        <button 
+                          type="button" 
+                          onClick={() => removeSection(section.id)}
+                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem', color: 'red' }}
+                        >
+                          Xóa
+                        </button>
+                      </div>
+                    </div>
+
+                    {section.type === 'heading' && (
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={section.content}
+                        onChange={(e) => updateSection(section.id, 'content', e.target.value)}
+                        placeholder="Nhập tiêu đề phụ..."
+                        style={{ fontSize: '1.2rem', fontWeight: 'bold' }}
+                      />
+                    )}
+
+                    {section.type === 'paragraph' && (
+                      <textarea
+                        className="form-input"
+                        value={section.content}
+                        onChange={(e) => updateSection(section.id, 'content', e.target.value)}
+                        placeholder="Nhập nội dung đoạn văn..."
+                        rows="5"
+                        style={{ lineHeight: '1.8' }}
+                      />
+                    )}
+
+                    {section.type === 'image' && (
+                      <div>
+                        <div style={{ marginBottom: '0.5rem' }}>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => handleSectionImageChange(section.id, e)}
+                            className="form-input"
+                          />
+                        </div>
+                        {section.imagePreview && (
+                          <div className="section-image-preview">
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                              <span style={{ fontSize: '0.85rem', color: '#6c757d', fontWeight: '500' }}>
+                                Ảnh hiện tại
+                              </span>
+                              <button
+                                type="button"
+                                className="section-image-delete-btn"
+                                onClick={() => {
+                                  updateSection(section.id, 'imageFile', null);
+                                  updateSection(section.id, 'imagePreview', null);
+                                }}
+                              >
+                                🗑️ Xóa ảnh
+                              </button>
+                            </div>
+                            <img 
+                              src={section.imagePreview} 
+                              alt="Preview" 
+                              className="image-preview-img"
+                            />
+                            <p style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: '#6c757d', fontStyle: 'italic', marginBottom: 0 }}>
+                              💡 Để thay đổi ảnh, chọn file mới ở trên
+                            </p>
+                          </div>
+                        )}
+                        <input
+                          type="text"
+                          className="form-input"
+                          value={section.alt || ''}
+                          onChange={(e) => updateSection(section.id, 'alt', e.target.value)}
+                          placeholder="Alt text (mô tả hình ảnh cho SEO và accessibility)"
+                          style={{ marginBottom: '0.5rem' }}
+                        />
+                        <input
+                          type="text"
+                          className="form-input"
+                          value={section.caption || ''}
+                          onChange={(e) => updateSection(section.id, 'caption', e.target.value)}
+                          placeholder="Chú thích hình ảnh (tùy chọn)"
+                        />
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {articleForm.contentSections.length === 0 && (
+                  <div style={{ textAlign: 'center', padding: '2rem', background: '#f8f9fa', borderRadius: '8px', color: '#6c757d' }}>
+                    Chưa có nội dung. Nhấn các nút bên trên để thêm tiêu đề, đoạn văn hoặc hình ảnh.
+                  </div>
+                )}
+              </div>
+
+              {/* Author and Category Info */}
+              <div style={{ background: '#f8f9fa', padding: '1.5rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
+                <h3 style={{ marginBottom: '1rem', color: '#2c3e50' }}>👤 Thông tin tác giả & phân loại</h3>
+                
+                <div className="form-group">
+                  <label className="form-label">Tên tác giả *</label>
                   <input
-                    type="checkbox"
-                    checked={articleForm.featured}
-                    onChange={(e) => setArticleForm(prev => ({ ...prev, featured: e.target.checked }))}
+                    type="text"
+                    className="form-input"
+                    value={articleForm.authorName}
+                    onChange={(e) => setArticleForm(prev => ({ ...prev, authorName: e.target.value }))}
+                    required
                   />
-                  Bài viết nổi bật
-                </label>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Email tác giả</label>
+                  <input
+                    type="email"
+                    className="form-input"
+                    value={articleForm.authorEmail}
+                    onChange={(e) => setArticleForm(prev => ({ ...prev, authorEmail: e.target.value }))}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Danh mục *</label>
+                  <select
+                    className="form-select"
+                    value={articleForm.categoryId}
+                    onChange={(e) => setArticleForm(prev => ({ ...prev, categoryId: e.target.value }))}
+                    required
+                  >
+                    <option value="">Chọn danh mục</option>
+                    {categories.map(category => (
+                      <option key={category._id} value={category._id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={articleForm.featured}
+                      onChange={(e) => setArticleForm(prev => ({ ...prev, featured: e.target.checked }))}
+                    />
+                    <span>⭐ Bài viết nổi bật</span>
+                  </label>
+                </div>
               </div>
 
               <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
                 <button type="submit" className="submit-btn" disabled={loading}>
-                  {loading ? 'Đang lưu...' : (editingArticle ? 'Cập nhật' : 'Tạo bài viết')}
+                  {loading ? 'Đang lưu...' : (editingArticle ? 'Cập nhật bài viết' : 'Xuất bản bài viết')}
                 </button>
                 {editingArticle && (
                   <button 
                     type="button" 
                     className="cancel-btn" 
-                    onClick={() => {
-                      setEditingArticle(null);
-                      setImagePreviews([]);
-                      setHasModifiedImages(false);
-                      setKeptImageUrls([]);
-                      setArticleForm({
-                        title: '',
-                        metaDescription: '',
-                        description: '',
-                        content: '',
-                        authorName: '',
-                        authorEmail: '',
-                        categoryId: '',
-                        featured: false,
-                        images: [],
-                        coverIndex: 0,
-                        imageOrder: []
-                      });
-                    }}
+                    onClick={resetArticleForm}
                   >
-                    Hủy
+                    Hủy chỉnh sửa
                   </button>
                 )}
               </div>

@@ -1,0 +1,13 @@
+========================================
+⚠️  QUAN TRỌNG - CHẠY SQL NÀY TRƯỚC!
+========================================
+
+Mở MySQL Workbench hoặc phpMyAdmin và chạy:
+
+ALTER USER 'katreview_user'@'localhost' IDENTIFIED BY '[PASSWORD_REMOVED_FOR_SECURITY]';
+FLUSH PRIVILEGES;
+
+========================================
+Sau khi chạy SQL, server mới có thể kết nối database!
+========================================
+

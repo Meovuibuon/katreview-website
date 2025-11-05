@@ -4,7 +4,7 @@
 -- =====================================================
 
 -- Đổi password cho user katreview_user
-ALTER USER 'katreview_user'@'localhost' IDENTIFIED BY 'UQCK5XEh@';
+ALTER USER 'katreview_user'@'localhost' IDENTIFIED BY 'YOUR_NEW_PASSWORD_HERE';
 
 -- Refresh privileges
 FLUSH PRIVILEGES;
