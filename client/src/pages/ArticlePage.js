@@ -58,8 +58,7 @@ const ArticlePage = () => {
 
   return (
     <div className="article-page">
-      <div className="container-wide">
-        <article className="article-main">
+      <article className="article-main">
         <header className="article-header">
           <h1>{article.title}</h1>
           <div className="article-meta">
@@ -103,8 +102,7 @@ const ArticlePage = () => {
         ) : (
           <p>Không có bài viết liên quan.</p>
         )}
-        </aside>
-      </div>
+      </aside>
     </div>
   );
 };

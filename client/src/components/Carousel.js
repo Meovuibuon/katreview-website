@@ -62,6 +62,14 @@ const Carousel = () => {
         <div
           key={article._id}
           className={`carousel-slide ${index === currentSlide ? 'active' : ''}`}
+          style={{
+            backgroundImage: article.images && article.images.length > 0 
+              ? `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url(${article.images[0].url})`
+              : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            backgroundRepeat: 'no-repeat'
+          }}
         >
           <div className="carousel-content">
             <h2 className="carousel-title">{article.title}</h2>
